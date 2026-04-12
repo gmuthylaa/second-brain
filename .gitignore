@@ -205,3 +205,16 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local Chroma DB files (do not commit)
+# Ignore any chroma_db directory created by local Chroma/Vector DB storage
+chroma_db/
+**/chroma_db/
+backend/chroma_db/
+backend/chroma_db/*
+backend/chroma_db/chroma.sqlite3
+
+# Local virtual environments created for this project
+# Ignore sb-venv (used for local Python envs)
+sb-venv/
+**/sb-venv/
