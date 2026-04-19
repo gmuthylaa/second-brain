@@ -9,6 +9,8 @@ from . import chat as chat_module
 from . import ingest_review as ingest_review_module
 from .settings import get_settings
 from . import shared
+#source sb-venv/bin/activate 
+#python -m uvicorn api:app --reload --port 8000
 
 settings = get_settings()
 

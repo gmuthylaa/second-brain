@@ -1,11 +1,14 @@
-from langgraph.graph import StateGraph, END
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+from datetime import datetime, timedelta
+from typing import Dict, Any
+
 from langchain_ollama import ChatOllama
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
-from typing import TypedDict, Annotated
-import operator
-from datetime import datetime, timedelta
 
+# Reuse your existing models (or import from shared)
 llm = ChatOllama(model="llama3.2:3b", temperature=0.3)
 
 embeddings = OllamaEmbeddings(model="all-minilm")
@@ -15,43 +18,17 @@ vectorstore = Chroma(
     persist_directory="./chroma_db"
 )
 
-class GraphState(TypedDict):
-    context: str
-    draft: str
-    critique: str
-    final_report: str
 
-def retrieve(state: GraphState):
-    """Retrieve recent notes for daily summary (last 7 days)"""
-    from datetime import datetime, timedelta
-    
-    today = datetime.now()
-    seven_days_ago = (today - timedelta(days=7)).strftime("%Y-%m-%d")
-    today_str = today.strftime("%Y-%m-%d")
+# ====================== Prompts ======================
 
-    # Smart query that includes date context
-    query = f"plans tasks activities expenses mood work health daily life today {today_str} recent since {seven_days_ago}"
+draft_prompt = ChatPromptTemplate.from_template(
+    """Today is {today_str}.
 
-    # Simple similarity search with better query (most reliable for now)
-    docs = vectorstore.similarity_search(query, k=10)
+        Here are my recent notes from the last 7 days:
 
-    context = "\n\n".join([doc.page_content for doc in docs])
-    
-    return {"context": context}
+        {context}
 
-def generate_draft(state: GraphState):
-    """Generate initial summary"""
-    import textwrap
-
-    prompt = textwrap.dedent(f"""
-        Today is {datetime.now().strftime('%A, %d %B %Y')}.
-
-        Here are my recent notes:
-        {state['context']}
-
-        Write a natural, well-structured daily summary.
-
-        Use this format:
+        Write a natural, well-structured daily summary using this exact format:
 
         **What Happened Today**
         - Key events, tasks, or activities
@@ -62,67 +39,89 @@ def generate_draft(state: GraphState):
         **Suggestions & Recommendations**
         - Practical suggestions for tomorrow or next steps
 
-        Keep the tone warm, balanced, and helpful. Use bullet points where appropriate.
-        """)
+        Tone: warm, balanced, and helpful. Use bullet points where appropriate.
+        Keep it concise but meaningful.
+        Focus on: plans, tasks, activities, expenses, mood, work, health, and daily life.
+    """
+)
 
-    response = llm.invoke(prompt)
-    return {"draft": response.content}
-
-def critique(state: GraphState):
-    """Critique the draft"""
-    import textwrap
-
-    prompt = textwrap.dedent(f"""
-        Review this draft daily summary and suggest improvements:
+critique_prompt = ChatPromptTemplate.from_template(
+    """Review this daily summary draft and give constructive feedback.
 
         Draft:
-        {state['draft']}
+        {draft}
 
-        Provide constructive feedback on:
+        Provide feedback on:
         - Clarity and structure
-        - Usefulness of suggestions
+        - Usefulness of suggestions  
         - Balance (not too negative or overly optimistic)
-        - Anything missing
+        - Anything important that might be missing
 
-        Be honest but kind.
-    """)
+        Be honest but kind. Output only the critique.
+    """
+)
 
-    response = llm.invoke(prompt)
-    return {"critique": response.content}
+finalize_prompt = ChatPromptTemplate.from_template(
+        """Improve the draft based on the critique.
 
-def finalize(state: GraphState):
-    """Produce final polished report"""
-    import textwrap
-
-    prompt = textwrap.dedent(f"""
-        Improve the draft based on the critique.
-
-        Draft:
-        {state['draft']}
+        Original Draft:
+        {draft}
 
         Critique:
-        {state['critique']}
+        {critique}
 
-        Produce the final, clean, and helpful daily summary.
-        """)
+        Produce the final, clean, polished daily summary.
+        Keep the same structure but make it better based on the feedback.
+        """
+)
 
-    response = llm.invoke(prompt)
-    return {"final_report": response.content}
 
-def build_daily_graph():
-    workflow = StateGraph(GraphState)
+# ====================== Helper Functions ======================
 
-    workflow.add_node("retrieve", retrieve)
-    workflow.add_node("generate_draft", generate_draft)
-    workflow.add_node("critique", critique)
-    workflow.add_node("finalize", finalize)
+def get_date_context() -> Dict[str, str]:
+    today = datetime.now()
+    seven_days_ago = today - timedelta(days=7)
+    
+    return {
+        "today": today.strftime("%A, %d %B %Y"),
+        "today_str": today.strftime("%Y-%m-%d"),
+        "seven_days_ago": seven_days_ago.strftime("%Y-%m-%d")
+    }
 
-    workflow.set_entry_point("retrieve")
-    workflow.add_edge("retrieve", "generate_draft")
-    workflow.add_edge("generate_draft", "critique")
-    workflow.add_edge("critique", "finalize")
-    workflow.add_edge("finalize", END)
 
-    return workflow.compile()
+def retrieve_notes(inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """Retrieve relevant notes for the last 7 days"""
+    dates = get_date_context()
+    
+    # Smart query combining keywords + date context
+    query = f"plans tasks activities expenses mood work health daily life today {dates['today_str']} since {dates['seven_days_ago']}"
 
-daily_graph = build_daily_graph()
+    docs = vectorstore.similarity_search(query, k=10)
+    context = "\n\n".join([doc.page_content for doc in docs])
+    
+    return {"context": context, **dates}
+
+
+# ====================== Build the Chain (LCEL) ======================
+
+daily_summary_chain = (
+    RunnablePassthrough()               # Start with empty input
+    | retrieve_notes                    # Step 1: Retrieve
+    | RunnablePassthrough.assign(       # Step 2: Generate Draft
+        draft = draft_prompt | llm | StrOutputParser()
+    )
+    | RunnablePassthrough.assign(       # Step 3: Critique
+        critique = critique_prompt | llm | StrOutputParser()
+    )
+    | finalize_prompt                   # Step 4: Finalize
+    | llm
+    | StrOutputParser()
+)
+
+
+# ====================== Usage ======================
+
+async def generate_daily_summary():
+    """Call this to generate today's summary"""
+    result = await daily_summary_chain.ainvoke({})
+    return result

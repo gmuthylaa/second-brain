@@ -33,18 +33,8 @@ router = APIRouter()
 async def daily_summary():
     try:
         if graph_daily:
-            result = graph_daily.daily_graph.invoke({})
-            return {"report": result["final_report"]}
-
-        # Try absolute import fallbacks
-        for cand in ("backend.utils.graph_daily", "utils.graph_daily", "graph_daily"):
-            try:
-                mod = importlib.import_module(cand)
-                result = mod.daily_graph.invoke({})
-                return {"report": result["final_report"]}
-            except Exception:
-                continue
-
+            result = await graph_daily.generate_daily_summary()
+            return {"report": result}
         return {"error": "daily graph module not found"}
     except Exception as e:
         return {"error": str(e)}

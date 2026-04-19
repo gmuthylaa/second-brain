@@ -149,23 +149,28 @@ export const AppProvider: React.FC<React.PropsWithChildren<object>> = ({ childre
         if (!inputMessage.trim() || isThinking) return
 
         const userMsg = inputMessage.trim()
+        
+        // Add user message to UI
         setMessages(prev => [...prev, { role: 'user', content: userMsg }])
         setInputMessage('')
         setIsThinking(true)
 
         try {
-            const res = await apiPostJSON('/chat', { question: userMsg })
+            const res = await apiPostJSON('/chat', {
+                question: userMsg,
+                history: messages   // Send conversation history
+            })
 
             const data = await res.json()
 
             if (data.error) {
                 toast.error(data.error)
             } else {
-                setMessages(prev => [...prev, { role: 'assistant', content: data.answer || data.report || "Sorry, I couldn't generate a response." }])
+                setMessages(prev => [...prev, { role: 'assistant', content: data.answer }])
             }
         } catch (err) {
-            console.error('Chat error:', err)
-            toast.error('Failed to get response')
+        console.error("Chat error:", err)
+        toast.error("Failed to get response")
         } finally {
             setIsThinking(false)
         }

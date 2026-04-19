@@ -1,5 +1,3 @@
-import React from 'react'
-
 import { Brain, Upload, Edit3, MessageCircle } from 'lucide-react'
 import { Toaster } from '@/components/ui/sonner'
 import { AppProvider } from '@/contexts/AppContext'

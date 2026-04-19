@@ -7,6 +7,7 @@ from langchain_ollama import OllamaEmbeddings
 from typing import TypedDict
 from datetime import datetime, timedelta
 import re
+import textwrap
 
 # -----------------------------
 # LLM + Vector Store
@@ -93,12 +94,13 @@ def writer(state: GraphState):
     """)
 
     res = llm.invoke(prompt)
-
+    print(f"Draft (Iteration {iteration}):", res.content)
     return {"draft": res.content, "iteration": iteration + 1}
 
 
 # -----------------------------
 # 3. PARALLEL CRITICS
+#
 # -----------------------------
 def structure_agent(state: GraphState):
     import textwrap
@@ -116,6 +118,7 @@ def structure_agent(state: GraphState):
         {state['draft']}
     """)
     res = llm.invoke(prompt)
+    print("Structure Feedback:", res.content)
 
     return {
         "structure_feedback": res.content
@@ -136,6 +139,7 @@ def clarity_agent(state: GraphState):
         {state['draft']}
     """)
     res = llm.invoke(prompt)
+    print(f"Clarity Feedback:", res.content)
 
     return {
         "clarity_feedback": res.content
@@ -157,6 +161,7 @@ def depth_agent(state: GraphState):
         {state['draft']}
     """)
     res = llm.invoke(prompt)
+    print(f"Depth Feedback:", res.content)
 
     return {
         "depth_feedback": res.content
@@ -167,29 +172,6 @@ def depth_agent(state: GraphState):
 # 4. SELECTOR
 # -----------------------------
 def selector(state: GraphState):
-    prompt = f"""
-        You are a strict evaluator.
-
-        Iteration: {state['iteration']}
-
-        If iteration > 1:
-        - be more lenient and finalize if acceptable
-
-        Structure Feedback:
-        {state['structure_feedback']}
-
-        Clarity Feedback:
-        {state['clarity_feedback']}
-
-        Depth Feedback:
-        {state['depth_feedback']}
-
-        Return strictly:
-        Score: X/10
-        Decision: finalize or rewrite
-    """
-
-    import textwrap
 
     prompt = textwrap.dedent(f"""
         You are a strict evaluator.
@@ -225,7 +207,8 @@ def selector(state: GraphState):
         decision = "finalize"
     else:
         decision = "finalize" if score >= 8 else "rewrite"
-
+    
+    print(f"Selector Decision (Iteration {state['iteration']}):", decision)
     return {
         "score": score,
         "previous_score": score,
@@ -242,7 +225,7 @@ def route(state: GraphState):
     # HARD STOP
     if iteration >= 2:
         return "finalize"
-
+    print(f"Router Decision (Iteration {iteration}):", state.get("decision", "rewrite"))
     return state.get("decision", "rewrite")
 
 
@@ -295,7 +278,7 @@ def finalize(state: GraphState):
     """)
 
     res = llm.invoke(prompt)
-
+    print(f"Final Report:", res.content)
     return {"final_report": res.content}
 
 
