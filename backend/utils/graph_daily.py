@@ -102,7 +102,7 @@ def retrieve_notes(inputs: Dict[str, Any]) -> Dict[str, Any]:
     return {"context": context, **dates}
 
 
-# ====================== Build the Chain (LCEL) ======================
+# ====================== Build the Chain ======================
 
 daily_summary_chain = (
     RunnablePassthrough()               # Start with empty input
